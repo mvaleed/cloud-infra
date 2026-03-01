@@ -114,11 +114,14 @@ resource "aws_iam_role" "github_actions_apply" {
         }
         Action = "sts:AssumeRoleWithWebIdentity"
         Condition = {
-          StringEquals = {
+          StringLike = {
             "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-            # EXACT match on main branch — this is StringEquals, NOT StringLike.
-            # No wildcards. Only merges/pushes to main can assume this role.
-            "token.actions.githubusercontent.com:sub" = "repo:${var.github_repo}:ref:refs/heads/main"
+            "token.actions.githubusercontent.com:sub" = [
+              "repo:${var.github_repo}:ref:refs/heads/main",
+              "repo:${var.github_repo}:environment:dev",
+              # "repo:${var.github_repo}:environment:staging",
+              # "repo:${var.github_repo}:environment:prod",
+            ]
           }
         }
       }
