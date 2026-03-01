@@ -80,10 +80,11 @@ resource "aws_iam_role_policy" "plan_state_access" {
         Resource = aws_s3_bucket.terraform_state.arn
       },
       {
-        Sid    = "AllowStateRead"
+        Sid    = "AllowStateReadWrite"
         Effect = "Allow"
         Action = [
           "s3:GetObject",
+          "s3:PubObject"
         ]
         Resource = "${aws_s3_bucket.terraform_state.arn}/*"
       }
