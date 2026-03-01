@@ -6,9 +6,6 @@
 # privilege with two separate roles:
 #
 #   1. "plan" role: Read-only. Used during PR checks to run `terraform plan`.
-#                   Restricted to the main branch only (NOT pull_request events).
-#                   This is intentional: in a public repo, fork PRs could
-#                   potentially trigger workflows.
 #
 #   2. "apply" role: Read-write. Used on merge to main to run `terraform apply`.
 #                    Locked to ONLY ref:refs/heads/main.
@@ -47,9 +44,11 @@ resource "aws_iam_role" "github_actions_plan" {
           StringEquals = {
             "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
           }
-          # Intentionally did NOT allow pull_request sub claim here.
           StringLike = {
-            "token.actions.githubusercontent.com:sub" = "repo:${var.github_repo}:ref:refs/heads/*"
+            "token.actions.githubusercontent.com:sub" = [
+              "repo:${var.github_repo}:ref:refs/heads/*",
+              "repo:${var.github_repo}:pull_request"
+            ]
           }
         }
       }

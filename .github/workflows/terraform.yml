@@ -65,7 +65,10 @@ jobs:
 
   plan:
     needs: detect-changes
-    if: github.event_name == 'pull_request' && needs.detect-changes.outputs.environments != '[]'
+    if: >-
+      github.event_name == 'pull_request'
+      && needs.detect-changes.outputs.environments != '[]'
+      && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
