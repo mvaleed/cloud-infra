@@ -28,7 +28,7 @@ jobs:
       environments: ${{ steps.build-matrix.outputs.environments }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@3
+      - uses: dorny/paths-filter@v3
         id: filter
         with:
           filters: |
