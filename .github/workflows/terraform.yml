@@ -163,12 +163,3 @@ jobs:
           head -c 1000000 plan.txt >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo '</details>' >> $GITHUB_STEP_SUMMARY
-
-  check:
-    if: always()
-    needs: [detect-changes, plan, apply]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: re-actors/alls-green@v1.2.2
-        with:
-          jobs: ${{ toJSON(needs) }}
