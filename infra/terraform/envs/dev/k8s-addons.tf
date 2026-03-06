@@ -112,7 +112,7 @@ resource "kubernetes_manifest" "letsencrypt_staging" {
     }
     spec = {
       acme = {
-        # Staging endpoint -- won't issue browser-trusted certs but has
+        # Staging endpoint: won't issue browser-trusted certs but has
         # generous rate limits for testing. Switch to production when ready:
         # server = "https://acme-v02.api.letsencrypt.org/directory"
         server = "https://acme-staging-v02.api.letsencrypt.org/directory"
