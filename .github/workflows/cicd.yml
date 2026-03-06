@@ -1,14 +1,4 @@
 ---
-# ──────────────────────────────────────────────────────────────────
-# CI/CD Orchestrator
-# ──────────────────────────────────────────────────────────────────
-# Single entry point for all infrastructure changes.
-# Detects which environments changed, then calls the reusable
-# Terraform and Kubernetes workflows in the correct order.
-#
-# PR:   terraform plan for each changed env
-# Push: terraform apply → k8s deploy, sequentially: dev → staging → prod
-# ──────────────────────────────────────────────────────────────────
 name: CI/CD
 
 on:
@@ -28,9 +18,6 @@ permissions:
   contents: read
 
 jobs:
-  # ════════════════════════════════════════════════════════════════
-  # Detect which environments have changes
-  # ════════════════════════════════════════════════════════════════
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
@@ -59,11 +46,7 @@ jobs:
             # prod-k8s:
             #   - 'infra/k8s/**'
 
-  # ════════════════════════════════════════════════════════════════
-  # DEV
-  # ════════════════════════════════════════════════════════════════
-
-  # ── PR: plan only ──────────────────────────────────────────────
+  # PR: plan only
   dev-plan:
     needs: detect-changes
     if: github.event_name == 'pull_request' && needs.detect-changes.outputs.dev-tf == 'true'
@@ -74,7 +57,7 @@ jobs:
     secrets:
       TF_VAR_DB_MASTER_PASSWORD: ${{ secrets.TF_VAR_DB_MASTER_PASSWORD }}
 
-  # ── Push: apply infra, then deploy k8s ─────────────────────────
+  # Push: apply infra, then deploy k8s
   dev-apply:
     needs: detect-changes
     if: github.event_name == 'push' && needs.detect-changes.outputs.dev-tf == 'true'
@@ -87,8 +70,6 @@ jobs:
 
   dev-k8s:
     needs: [detect-changes, dev-apply]
-    # Run if TF was applied (k8s always needs fresh outputs after TF changes)
-    # OR if only k8s manifests changed (TF apply was skipped)
     if: |
       always()
       && github.event_name == 'push'
@@ -99,11 +80,7 @@ jobs:
     with:
       environment: dev
     secrets:
-      TF_VAR_DB_MASTER_PASSWORD: ${{ secrets.TF_VAR_DB_MASTER_PASSWORD }}
-
-  # ════════════════════════════════════════════════════════════════
-  # STAGING (uncomment when ready)
-  # ════════════════════════════════════════════════════════════════
+      DB_MASTER_PASSWORD: ${{ secrets.TF_VAR_DB_MASTER_PASSWORD }}
 
   # staging-plan:
   #   needs: detect-changes
@@ -141,11 +118,8 @@ jobs:
   #   with:
   #     environment: staging
   #   secrets:
-  #     TF_VAR_DB_MASTER_PASSWORD: ${{ secrets.TF_VAR_DB_MASTER_PASSWORD }}
+  #     DB_MASTER_PASSWORD: ${{ secrets.TF_VAR_DB_MASTER_PASSWORD }}
 
-  # ════════════════════════════════════════════════════════════════
-  # PROD (uncomment when ready)
-  # ════════════════════════════════════════════════════════════════
   # Prod waits for staging to complete. GitHub Environment protection
   # rules can add manual approval gates here.
 
@@ -185,4 +159,4 @@ jobs:
   #   with:
   #     environment: prod
   #   secrets:
-  #     TF_VAR_DB_MASTER_PASSWORD: ${{ secrets.TF_VAR_DB_MASTER_PASSWORD }}
+  #     DB_MASTER_PASSWORD: ${{ secrets.TF_VAR_DB_MASTER_PASSWORD }}
