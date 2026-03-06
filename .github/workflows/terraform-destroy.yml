@@ -1,0 +1,89 @@
+---
+name: Terraform Destroy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment to destroy"
+        required: true
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+      confirm:
+        description: "Type the environment name to confirm destruction"
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  TF_VERSION: "1.14.6"
+
+jobs:
+  destroy:
+    if: inputs.confirm == inputs.environment
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    concurrency:
+      group: terraform-apply-${{ inputs.environment }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::129580962636:role/github-actions-terraform-apply-role
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: tf-destroy-${{ inputs.environment }}-${{ github.run_id }}
+
+      - name: Terraform Init
+        working-directory: infra/terraform/envs/${{ inputs.environment }}
+        run: terraform init -input=false
+
+      # Delete LB services so AWS-created ENIs don't block VPC deletion
+      - name: Clean up LoadBalancer services
+        working-directory: infra/terraform/envs/${{ inputs.environment }}
+        env:
+          TF_VAR_db_master_password: ${{ secrets.TF_VAR_DB_MASTER_PASSWORD }}
+        run: |
+          CLUSTER=$(terraform output -raw eks_cluster_name 2>/dev/null || echo "")
+          [ -z "$CLUSTER" ] && echo "No EKS cluster found, skipping." && exit 0
+
+          aws eks update-kubeconfig --name "$CLUSTER" --region ${{ env.AWS_REGION }}
+          kubectl delete svc --all-namespaces -l '!kubernetes.io/service-name' \
+            --field-selector spec.type=LoadBalancer --timeout=120s 2>/dev/null || true
+
+      # Terraform destroy
+      - name: Terraform Plan (destroy)
+        working-directory: infra/terraform/envs/${{ inputs.environment }}
+        env:
+          TF_VAR_db_master_password: ${{ secrets.TF_VAR_DB_MASTER_PASSWORD }}
+        run: |
+          set -o pipefail
+          terraform plan -destroy -no-color -input=false -lock-timeout=60s -out=destroy.tfplan 2>&1 | tee plan.txt
+
+          echo "### Terraform Destroy Plan: \`${{ inputs.environment }}\`" >> $GITHUB_STEP_SUMMARY
+          echo '<details><summary>Click to expand</summary>' >> $GITHUB_STEP_SUMMARY
+          echo '' >> $GITHUB_STEP_SUMMARY
+          echo '```hcl' >> $GITHUB_STEP_SUMMARY
+          head -c 1000000 plan.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo '</details>' >> $GITHUB_STEP_SUMMARY
+
+      - name: Terraform Destroy
+        working-directory: infra/terraform/envs/${{ inputs.environment }}
+        env:
+          TF_VAR_db_master_password: ${{ secrets.TF_VAR_DB_MASTER_PASSWORD }}
+        run: |
+          terraform apply -input=false destroy.tfplan
+          echo "All infrastructure for \`${{ inputs.environment }}\` has been destroyed." >> $GITHUB_STEP_SUMMARY

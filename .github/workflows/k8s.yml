@@ -1,0 +1,139 @@
+---
+name: Kubernetes
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: "Target environment (dev, staging, prod)"
+        required: true
+        type: string
+    secrets:
+      DB_MASTER_PASSWORD:
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  TF_VERSION: "1.14.6"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    concurrency:
+      group: k8s-deploy-${{ inputs.environment }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve K8s namespace
+        id: ns
+        run: |
+          NS=$(grep '^  name:' infra/k8s/namespace.yaml | awk '{print $2}')
+          echo "namespace=${NS}" >> "$GITHUB_OUTPUT"
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::129580962636:role/github-actions-terraform-apply-role
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: k8s-deploy-${{ inputs.environment }}-${{ github.run_id }}
+
+      - name: Terraform Init (read outputs only)
+        working-directory: infra/terraform/envs/${{ inputs.environment }}
+        run: terraform init -input=false
+
+      - name: Read Terraform Outputs
+        id: tf
+        working-directory: infra/terraform/envs/${{ inputs.environment }}
+        env:
+          TF_VAR_db_master_password: ${{ secrets.DB_MASTER_PASSWORD }}
+        run: |
+          RDS_ENDPOINT=$(terraform output -raw rds_endpoint)
+          echo "rds_host=${RDS_ENDPOINT%%:*}" >> "$GITHUB_OUTPUT"
+          echo "rds_port=${RDS_ENDPOINT##*:}" >> "$GITHUB_OUTPUT"
+          echo "rds_database=$(terraform output -raw rds_database_name)" >> "$GITHUB_OUTPUT"
+          echo "rds_username=$(terraform output -raw rds_master_username)" >> "$GITHUB_OUTPUT"
+          echo "eks_cluster_name=$(terraform output -raw eks_cluster_name)" >> "$GITHUB_OUTPUT"
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --name ${{ steps.tf.outputs.eks_cluster_name }} \
+            --region ${{ env.AWS_REGION }}
+
+      - name: Apply K8s manifests
+        run: kubectl apply -f infra/k8s/
+
+      - name: Create RDS credentials secret
+        env:
+          RDS_HOST: ${{ steps.tf.outputs.rds_host }}
+          RDS_PORT: ${{ steps.tf.outputs.rds_port }}
+          RDS_DATABASE: ${{ steps.tf.outputs.rds_database }}
+          RDS_USERNAME: ${{ steps.tf.outputs.rds_username }}
+          RDS_PASSWORD: ${{ secrets.DB_MASTER_PASSWORD }}
+        run: |
+          DATABASE_URL="postgresql://${RDS_USERNAME}:${RDS_PASSWORD}@${RDS_HOST}:${RDS_PORT}/${RDS_DATABASE}"
+
+          kubectl create secret generic rds-credentials \
+            --namespace=${{ steps.ns.outputs.namespace }} \
+            --from-literal=DB_HOST="${RDS_HOST}" \
+            --from-literal=DB_PORT="${RDS_PORT}" \
+            --from-literal=DB_NAME="${RDS_DATABASE}" \
+            --from-literal=DB_USERNAME="${RDS_USERNAME}" \
+            --from-literal=DB_PASSWORD="${RDS_PASSWORD}" \
+            --from-literal=DATABASE_URL="${DATABASE_URL}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Verify deployment
+        env:
+          K8S_NS: ${{ steps.ns.outputs.namespace }}
+        run: |
+          echo "### K8s Deploy: \`${{ inputs.environment }}\`" >> $GITHUB_STEP_SUMMARY
+
+          # Verify namespace exists
+          kubectl get namespace "$K8S_NS" > /dev/null
+          echo "- Namespace \`${K8S_NS}\` exists" >> $GITHUB_STEP_SUMMARY
+
+          # Verify secret exists and has all expected keys
+          EXPECTED_KEYS="DB_HOST DB_NAME DB_PASSWORD DB_PORT DB_USERNAME DATABASE_URL"
+          ACTUAL_KEYS=$(kubectl get secret rds-credentials -n "$K8S_NS" \
+            -o go-template='{{range $k, $v := .data}}{{$k}} {{end}}')
+          echo "- Secret \`rds-credentials\` exists with keys: ${ACTUAL_KEYS}" >> $GITHUB_STEP_SUMMARY
+
+          MISSING=""
+          for KEY in $EXPECTED_KEYS; do
+            if ! echo "$ACTUAL_KEYS" | grep -qw "$KEY"; then
+              MISSING="${MISSING} ${KEY}"
+            fi
+          done
+          if [ -n "$MISSING" ]; then
+            echo "::error::Secret rds-credentials is missing keys:${MISSING}"
+            exit 1
+          fi
+
+          DB_URL=$(kubectl get secret rds-credentials -n "$K8S_NS" \
+            -o jsonpath='{.data.DATABASE_URL}' | base64 -d)
+          if ! echo "$DB_URL" | grep -q "^postgresql://"; then
+            echo "::error::DATABASE_URL does not start with postgresql://"
+            exit 1
+          fi
+          echo "- \`DATABASE_URL\` is well-formed" >> $GITHUB_STEP_SUMMARY
+
+          for KEY in $EXPECTED_KEYS; do
+            VAL=$(kubectl get secret rds-credentials -n "$K8S_NS" \
+              -o jsonpath="{.data.${KEY}}" | base64 -d)
+            if [ -z "$VAL" ]; then
+              echo "::error::Secret key ${KEY} is empty"
+              exit 1
+            fi
+          done
+          echo "- All secret values are non-empty" >> $GITHUB_STEP_SUMMARY
