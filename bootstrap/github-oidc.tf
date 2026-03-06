@@ -234,6 +234,14 @@ resource "aws_iam_role_policy" "apply_iam_permissions" {
           "iam:CreateServiceLinkedRole",
           "iam:DeleteServiceLinkedRole",
           "iam:GetServiceLinkedRoleDeletionStatus",
+
+          # OIDC providers (EKS creates its own for IRSA)
+          "iam:CreateOpenIDConnectProvider",
+          "iam:DeleteOpenIDConnectProvider",
+          "iam:UpdateOpenIDConnectProviderThumbprint",
+          "iam:AddClientIDToOpenIDConnectProvider",
+          "iam:RemoveClientIDFromOpenIDConnectProvider",
+          "iam:TagOpenIDConnectProvider",
         ]
         Resource = "*"
       },

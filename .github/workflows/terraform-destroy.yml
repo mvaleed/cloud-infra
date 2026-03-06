@@ -50,19 +50,6 @@ jobs:
         working-directory: infra/terraform/envs/${{ inputs.environment }}
         run: terraform init -input=false
 
-      # Delete LB services so AWS-created ENIs don't block VPC deletion
-      - name: Clean up LoadBalancer services
-        working-directory: infra/terraform/envs/${{ inputs.environment }}
-        env:
-          TF_VAR_db_master_password: ${{ secrets.TF_VAR_DB_MASTER_PASSWORD }}
-        run: |
-          CLUSTER=$(terraform output -raw eks_cluster_name 2>/dev/null || echo "")
-          [ -z "$CLUSTER" ] && echo "No EKS cluster found, skipping." && exit 0
-
-          aws eks update-kubeconfig --name "$CLUSTER" --region ${{ env.AWS_REGION }}
-          kubectl delete svc --all-namespaces -l '!kubernetes.io/service-name' \
-            --field-selector spec.type=LoadBalancer --timeout=120s 2>/dev/null || true
-
       # Terraform destroy
       - name: Terraform Plan (destroy)
         working-directory: infra/terraform/envs/${{ inputs.environment }}
