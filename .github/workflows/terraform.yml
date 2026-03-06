@@ -1,17 +1,26 @@
 ---
+# ──────────────────────────────────────────────────────────────────
+# Reusable Terraform Workflow
+# ──────────────────────────────────────────────────────────────────
+# Called by cicd.yml. Not triggered directly.
+# Runs plan or apply for a single environment.
+# ──────────────────────────────────────────────────────────────────
 name: Terraform
 
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - "infra/**"
-      - ".github/workflows/terraform.yml"
-  push:
-    branches: [main]
-    paths:
-      - "infra/**"
-      - ".github/workflows/terraform.yml"
+  workflow_call:
+    inputs:
+      environment:
+        description: "Target environment (dev, staging, prod)"
+        required: true
+        type: string
+      action:
+        description: "plan or apply"
+        required: true
+        type: string
+    secrets:
+      TF_VAR_DB_MASTER_PASSWORD:
+        required: true
 
 permissions:
   id-token: write
@@ -22,60 +31,11 @@ env:
   TF_VERSION: "1.14.6"
 
 jobs:
-  detect-changes:
-    runs-on: ubuntu-latest
-    outputs:
-      environments: ${{ steps.build-matrix.outputs.environments }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
-            dev:
-              - 'infra/envs/dev/**'
-              - 'infra/modules/**'
-            # staging:
-            #   - 'infra/envs/staging/**'
-            #   - 'infra/modules/**'
-            # prod:
-            #   - 'infra/envs/prod/**'
-            #   - 'infra/modules/**'
-
-      - name: Build environment matrix
-        id: build-matrix
-        run: |
-          envs=()
-          if [[ "${{ steps.filter.outputs.dev }}" == "true" ]]; then
-            envs+=('"dev"')
-          fi
-          # if [[ "${{ steps.filter.outputs.staging }}" == "true" ]]; then
-          #   envs+=('"staging"')
-          # fi
-          # if [[ "${{ steps.filter.outputs.prod }}" == "true" ]]; then
-          #   envs+=('"prod"')
-          # fi
-
-          if [[ ${#envs[@]} -eq 0 ]]; then
-            echo "environments=[]" >> $GITHUB_OUTPUT
-          else
-            joined=$(IFS=,; echo "${envs[*]}")
-            echo "environments=[$joined]" >> $GITHUB_OUTPUT
-          fi
-
   plan:
-    needs: detect-changes
-    if: >-
-      github.event_name == 'pull_request'
-      && needs.detect-changes.outputs.environments != '[]'
-      && github.event.pull_request.head.repo.full_name == github.repository
+    if: inputs.action == 'plan'
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        environment: ${{ fromJson(needs.detect-changes.outputs.environments) }}
     concurrency:
-      group: terraform-plan-${{ matrix.environment }}
+      group: terraform-plan-${{ inputs.environment }}
       cancel-in-progress: true
     steps:
       - uses: actions/checkout@v4
@@ -88,27 +48,29 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::129580962636:role/github-actions-terraform-plan-role
           aws-region: ${{ env.AWS_REGION }}
-          role-session-name: tf-plan-${{ matrix.environment }}-${{ github.run_id }}
+          role-session-name: tf-plan-${{ inputs.environment }}-${{ github.run_id }}
 
       - name: Terraform Init
-        working-directory: infra/envs/${{ matrix.environment }}
+        working-directory: infra/terraform/envs/${{ inputs.environment }}
         run: terraform init -input=false
 
       - name: Terraform Format Check
-        working-directory: infra/envs/${{ matrix.environment }}
+        working-directory: infra/terraform/envs/${{ inputs.environment }}
         run: terraform fmt -check -recursive
 
       - name: Terraform Validate
-        working-directory: infra/envs/${{ matrix.environment }}
+        working-directory: infra/terraform/envs/${{ inputs.environment }}
         run: terraform validate
 
       - name: Terraform Plan
-        working-directory: infra/envs/${{ matrix.environment }}
+        working-directory: infra/terraform/envs/${{ inputs.environment }}
+        env:
+          TF_VAR_db_master_password: ${{ secrets.TF_VAR_DB_MASTER_PASSWORD }}
         run: |
           set -o pipefail
           terraform plan -no-color -input=false -lock-timeout=60s -out=plan.tfplan 2>&1 | tee plan.txt
 
-          echo "### Terraform Plan: \`${{ matrix.environment }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "### Terraform Plan: \`${{ inputs.environment }}\`" >> $GITHUB_STEP_SUMMARY
           echo '<details><summary>Click to expand</summary>' >> $GITHUB_STEP_SUMMARY
           echo '' >> $GITHUB_STEP_SUMMARY
           echo '```hcl' >> $GITHUB_STEP_SUMMARY
@@ -117,16 +79,11 @@ jobs:
           echo '</details>' >> $GITHUB_STEP_SUMMARY
 
   apply:
-    needs: detect-changes
-    if: github.event_name == 'push' && needs.detect-changes.outputs.environments != '[]'
+    if: inputs.action == 'apply'
     runs-on: ubuntu-latest
-    strategy:
-      max-parallel: 1
-      matrix:
-        environment: ${{ fromJson(needs.detect-changes.outputs.environments) }}
-    environment: ${{ matrix.environment }}
+    environment: ${{ inputs.environment }}
     concurrency:
-      group: terraform-apply-${{ matrix.environment }}
+      group: terraform-apply-${{ inputs.environment }}
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
@@ -139,24 +96,26 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::129580962636:role/github-actions-terraform-apply-role
           aws-region: ${{ env.AWS_REGION }}
-          role-session-name: tf-apply-${{ matrix.environment }}-${{ github.run_id }}
+          role-session-name: tf-apply-${{ inputs.environment }}-${{ github.run_id }}
 
       - name: Terraform Init
-        working-directory: infra/envs/${{ matrix.environment }}
+        working-directory: infra/terraform/envs/${{ inputs.environment }}
         run: terraform init -input=false
 
       - name: Terraform Validate
-        working-directory: infra/envs/${{ matrix.environment }}
+        working-directory: infra/terraform/envs/${{ inputs.environment }}
         run: terraform validate
 
       - name: Terraform Apply
-        working-directory: infra/envs/${{ matrix.environment }}
+        working-directory: infra/terraform/envs/${{ inputs.environment }}
+        env:
+          TF_VAR_db_master_password: ${{ secrets.TF_VAR_DB_MASTER_PASSWORD }}
         run: |
           set -o pipefail
           terraform plan -no-color -input=false -lock-timeout=60s -out=plan.tfplan 2>&1 | tee plan.txt
           terraform apply -input=false plan.tfplan
 
-          echo "### Terraform Apply: \`${{ matrix.environment }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "### Terraform Apply: \`${{ inputs.environment }}\`" >> $GITHUB_STEP_SUMMARY
           echo '<details><summary>Plan that was applied</summary>' >> $GITHUB_STEP_SUMMARY
           echo '' >> $GITHUB_STEP_SUMMARY
           echo '```hcl' >> $GITHUB_STEP_SUMMARY
