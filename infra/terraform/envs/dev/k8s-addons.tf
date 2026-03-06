@@ -103,43 +103,6 @@ resource "helm_release" "cert_manager" {
   depends_on = [module.eks]
 }
 
-resource "kubernetes_manifest" "letsencrypt_staging" {
-  manifest = {
-    apiVersion = "cert-manager.io/v1"
-    kind       = "ClusterIssuer"
-    metadata = {
-      name = "letsencrypt-staging"
-    }
-    spec = {
-      acme = {
-        # Staging endpoint: won't issue browser-trusted certs but has
-        # generous rate limits for testing. Switch to production when ready:
-        # server = "https://acme-v02.api.letsencrypt.org/directory"
-        server = "https://acme-staging-v02.api.letsencrypt.org/directory"
-        email  = "admin@example.com" # TODO: Change to your real email
-        privateKeySecretRef = {
-          name = "letsencrypt-staging-key"
-        }
-        solvers = [{
-          http01 = {
-            ingress = {
-              ingressTemplate = {
-                metadata = {
-                  annotations = {
-                    "kubernetes.io/ingress.class" = "traefik"
-                  }
-                }
-              }
-            }
-          }
-        }]
-      }
-    }
-  }
-
-  depends_on = [helm_release.cert_manager, helm_release.traefik]
-}
-
 data "kubernetes_service" "traefik" {
   metadata {
     name      = "traefik"
