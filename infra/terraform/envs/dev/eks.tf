@@ -149,6 +149,15 @@ module "eks" {
         }
       }
     }
+    valeedyounas = {
+      principal_arn = "arn:aws:iam::129580962636:user/valeedyounas"
+      policy_associations = {
+        cluster_admin = {
+          policy_arn   = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+          access_scope = { type = "cluster" }
+        }
+      }
+    }
   }
 
   # PROD: Use access entries for team members:
