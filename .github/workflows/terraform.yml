@@ -2,12 +2,29 @@
 # ──────────────────────────────────────────────────────────────────
 # Reusable Terraform Workflow
 # ──────────────────────────────────────────────────────────────────
-# Called by cicd.yml. Not triggered directly.
+# Called by cicd.yml or triggered manually via GitHub UI.
 # Runs plan or apply for a single environment.
 # ──────────────────────────────────────────────────────────────────
 name: Terraform
 
 on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment (dev, staging, prod)"
+        required: true
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+      action:
+        description: "plan or apply"
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
   workflow_call:
     inputs:
       environment:
