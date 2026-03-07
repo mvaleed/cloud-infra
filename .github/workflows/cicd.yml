@@ -22,11 +22,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       dev-tf: ${{ steps.filter.outputs.dev-tf }}
-      dev-k8s: ${{ steps.filter.outputs.dev-k8s }}
       # staging-tf: ${{ steps.filter.outputs.staging-tf }}
-      # staging-k8s: ${{ steps.filter.outputs.staging-k8s }}
       # prod-tf: ${{ steps.filter.outputs.prod-tf }}
-      # prod-k8s: ${{ steps.filter.outputs.prod-k8s }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -35,16 +32,10 @@ jobs:
           filters: |
             dev-tf:
               - 'infra/terraform/envs/dev/**'
-            dev-k8s:
-              - 'infra/k8s/**'
             # staging-tf:
             #   - 'infra/terraform/envs/staging/**'
-            # staging-k8s:
-            #   - 'infra/k8s/**'
             # prod-tf:
             #   - 'infra/terraform/envs/prod/**'
-            # prod-k8s:
-            #   - 'infra/k8s/**'
 
   # PR: plan only
   dev-plan:
@@ -57,7 +48,7 @@ jobs:
     secrets:
       TF_VAR_DB_MASTER_PASSWORD: ${{ secrets.TF_VAR_DB_MASTER_PASSWORD }}
 
-  # Push: apply infra, then deploy k8s
+  # Push: apply infra + k8s resources (all managed by Terraform)
   dev-apply:
     needs: detect-changes
     if: github.event_name == 'push' && needs.detect-changes.outputs.dev-tf == 'true'
@@ -67,20 +58,6 @@ jobs:
       action: apply
     secrets:
       TF_VAR_DB_MASTER_PASSWORD: ${{ secrets.TF_VAR_DB_MASTER_PASSWORD }}
-
-  dev-k8s:
-    needs: [detect-changes, dev-apply]
-    if: |
-      always()
-      && github.event_name == 'push'
-      && needs.detect-changes.result == 'success'
-      && (needs.dev-apply.result == 'success' || needs.dev-apply.result == 'skipped')
-      && (needs.detect-changes.outputs.dev-tf == 'true' || needs.detect-changes.outputs.dev-k8s == 'true')
-    uses: ./.github/workflows/k8s.yml
-    with:
-      environment: dev
-    secrets:
-      DB_MASTER_PASSWORD: ${{ secrets.TF_VAR_DB_MASTER_PASSWORD }}
 
   # staging-plan:
   #   needs: detect-changes
@@ -93,32 +70,18 @@ jobs:
   #     TF_VAR_DB_MASTER_PASSWORD: ${{ secrets.TF_VAR_DB_MASTER_PASSWORD }}
 
   # staging-apply:
-  #   needs: [detect-changes, dev-k8s]
+  #   needs: [detect-changes, dev-apply]
   #   if: >-
   #     always()
   #     && github.event_name == 'push'
   #     && needs.detect-changes.outputs.staging-tf == 'true'
-  #     && (needs.dev-k8s.result == 'success' || needs.dev-k8s.result == 'skipped')
+  #     && (needs.dev-apply.result == 'success' || needs.dev-apply.result == 'skipped')
   #   uses: ./.github/workflows/terraform.yml
   #   with:
   #     environment: staging
   #     action: apply
   #   secrets:
   #     TF_VAR_DB_MASTER_PASSWORD: ${{ secrets.TF_VAR_DB_MASTER_PASSWORD }}
-
-  # staging-k8s:
-  #   needs: [detect-changes, staging-apply]
-  #   if: |
-  #     always()
-  #     && github.event_name == 'push'
-  #     && needs.detect-changes.result == 'success'
-  #     && (needs.staging-apply.result == 'success' || needs.staging-apply.result == 'skipped')
-  #     && (needs.detect-changes.outputs.staging-tf == 'true' || needs.detect-changes.outputs.staging-k8s == 'true')
-  #   uses: ./.github/workflows/k8s.yml
-  #   with:
-  #     environment: staging
-  #   secrets:
-  #     DB_MASTER_PASSWORD: ${{ secrets.TF_VAR_DB_MASTER_PASSWORD }}
 
   # Prod waits for staging to complete. GitHub Environment protection
   # rules can add manual approval gates here.
@@ -134,29 +97,15 @@ jobs:
   #     TF_VAR_DB_MASTER_PASSWORD: ${{ secrets.TF_VAR_DB_MASTER_PASSWORD }}
 
   # prod-apply:
-  #   needs: [detect-changes, staging-k8s]
+  #   needs: [detect-changes, staging-apply]
   #   if: >-
   #     always()
   #     && github.event_name == 'push'
   #     && needs.detect-changes.outputs.prod-tf == 'true'
-  #     && (needs.staging-k8s.result == 'success' || needs.staging-k8s.result == 'skipped')
+  #     && (needs.staging-apply.result == 'success' || needs.staging-apply.result == 'skipped')
   #   uses: ./.github/workflows/terraform.yml
   #   with:
   #     environment: prod
   #     action: apply
   #   secrets:
   #     TF_VAR_DB_MASTER_PASSWORD: ${{ secrets.TF_VAR_DB_MASTER_PASSWORD }}
-
-  # prod-k8s:
-  #   needs: [detect-changes, prod-apply]
-  #   if: |
-  #     always()
-  #     && github.event_name == 'push'
-  #     && needs.detect-changes.result == 'success'
-  #     && (needs.prod-apply.result == 'success' || needs.prod-apply.result == 'skipped')
-  #     && (needs.detect-changes.outputs.prod-tf == 'true' || needs.detect-changes.outputs.prod-k8s == 'true')
-  #   uses: ./.github/workflows/k8s.yml
-  #   with:
-  #     environment: prod
-  #   secrets:
-  #     DB_MASTER_PASSWORD: ${{ secrets.TF_VAR_DB_MASTER_PASSWORD }}

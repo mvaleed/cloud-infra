@@ -11,9 +11,7 @@ module "eks" {
   # Nodes go in private subnets. Always. No exceptions.
   # The control plane ENIs also go here for kubectl communication.
 
-  # ----------------------------------------------------------------
   # CLUSTER ENDPOINT ACCESS
-  # ----------------------------------------------------------------
   # This controls who can reach the Kubernetes API server.
   #
   # Dev: Public + Private. You need public to run kubectl from your
@@ -30,9 +28,7 @@ module "eks" {
   # PROD: If keeping public access, lock it to your office IP:
   # cluster_endpoint_public_access_cidrs = ["203.0.113.0/24"]
 
-  # ----------------------------------------------------------------
   # CONTROL PLANE LOGGING — enable even in dev
-  # ----------------------------------------------------------------
   # These go to CloudWatch. Invaluable for debugging auth issues,
   # scheduler decisions, and audit trails. Free to enable (you pay
   # for CloudWatch ingestion/storage, but it's minimal in dev).
@@ -40,9 +36,7 @@ module "eks" {
   # PROD: Add "controllerManager" and "scheduler" too.
   # Full list: ["api", "audit", "authenticator", "controllerManager", "scheduler"]
 
-  # ----------------------------------------------------------------
   # CLUSTER ADDONS
-  # ----------------------------------------------------------------
   # These are AWS-managed. They auto-update and are tightly
   # integrated. Don't install these via Helm yourself.
 
@@ -81,9 +75,7 @@ module "eks" {
     }
   }
 
-  # ----------------------------------------------------------------
   # NODE GROUPS
-  # ----------------------------------------------------------------
   # Managed Node Groups = AWS handles the EC2 lifecycle (launch,
   # drain, terminate on update). You don't SSH into these. Ever.
   #
@@ -95,9 +87,7 @@ module "eks" {
 
   eks_managed_node_groups = {
     general = {
-      # ----------------------------------------------------------
       # INSTANCE TYPES
-      # ----------------------------------------------------------
       # t3.medium: 2 vCPU, 4 GB RAM, burstable.
       # Fine for dev. Each can host ~17 pods (ENI limit).
       #
@@ -110,16 +100,12 @@ module "eks" {
       instance_types = ["t3.medium"]
       capacity_type  = "ON_DEMAND"
 
-      # ----------------------------------------------------------
       # AMI TYPE — use AL2023 (AL2 is deprecated from K8s 1.33+)
-      # ----------------------------------------------------------
       ami_type = "AL2023_x86_64_STANDARD"
       # AL2023 uses cgroup v2 by default, which aligns with K8s 1.35+
       # that deprecates cgroup v1. This avoids future breakage.
 
-      # ----------------------------------------------------------
       # SCALING
-      # ----------------------------------------------------------
       # Dev: 2 nodes (one per AZ for basic resilience testing).
       # max_size is higher so Cluster Autoscaler can work.
       #
@@ -131,9 +117,7 @@ module "eks" {
       max_size     = 4
       desired_size = 2
 
-      # ----------------------------------------------------------
       # DISK
-      # ----------------------------------------------------------
       disk_size = 50 # GB. Default 20 is too small for container images.
 
       # Labels let you control pod placement with nodeSelector
@@ -144,9 +128,7 @@ module "eks" {
     }
   }
 
-  # ----------------------------------------------------------------
-  # AUTHENTICATION — Who can access the cluster?
-  # ----------------------------------------------------------------
+  # AUTHENTICATION: Who can access the cluster?
   # The module manages aws-auth ConfigMap. This maps IAM → K8s RBAC.
   #
   # enable_cluster_creator_admin_permissions gives YOUR IAM user/role
@@ -169,9 +151,7 @@ module "eks" {
   # }
 }
 
-# ------------------------------------------------------------------
 # IRSA for EBS CSI Driver
-# ------------------------------------------------------------------
 # IRSA = IAM Roles for Service Accounts. This lets a K8s service
 # account assume an IAM role — no access keys floating around.
 # The EBS CSI driver needs IAM permissions to create/attach EBS volumes.
