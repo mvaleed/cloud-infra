@@ -33,15 +33,17 @@ resource "helm_release" "traefik" {
   namespace        = "traefik"
   create_namespace = true
   atomic           = true
-  timeout          = 300 # 5 min timeout for NLB provisioning
+  timeout          = 600 # 10 min: NLB provisioning + target health checks need headroom
 
   values = [yamlencode({
     service = {
       type = "LoadBalancer"
       annotations = {
-        "service.beta.kubernetes.io/aws-load-balancer-type"            = "external"
-        "service.beta.kubernetes.io/aws-load-balancer-nlb-target-type" = "instance"
-        "service.beta.kubernetes.io/aws-load-balancer-scheme"          = "internet-facing"
+        # Uses the built-in AWS cloud controller (no AWS LB Controller needed).
+        # "nlb" = built-in controller creates NLB.
+        # "external" would require the AWS LB Controller which we don't install.
+        "service.beta.kubernetes.io/aws-load-balancer-type"     = "nlb"
+        "service.beta.kubernetes.io/aws-load-balancer-internal" = "false"
       }
     }
 
