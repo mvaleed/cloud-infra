@@ -137,6 +137,29 @@ module "eks" {
 
   enable_cluster_creator_admin_permissions = true
 
+  # Grant the CI plan role read access to the cluster so that
+  # terraform plan can refresh kubernetes/helm resource state.
+  access_entries = {
+    ci_plan = {
+      principal_arn = "arn:aws:iam::129580962636:role/github-actions-terraform-plan-role"
+      policy_associations = {
+        cluster_admin = {
+          policy_arn   = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+          access_scope = { type = "cluster" }
+        }
+      }
+    }
+    valeedyounas = {
+      principal_arn = "arn:aws:iam::129580962636:user/valeedyounas"
+      policy_associations = {
+        cluster_admin = {
+          policy_arn   = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+          access_scope = { type = "cluster" }
+        }
+      }
+    }
+  }
+
   # PROD: Use access entries for team members:
   # access_entries = {
   #   devs = {
